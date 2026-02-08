@@ -8,32 +8,34 @@ import base64
 from ultralytics import YOLO
 from gtts import gTTS
 
-# ページ設定: タイトルとアクセシビリティのためのスタイル適用
+# --- 設定 ---
 st.set_page_config(page_title="信号機アシスタント", layout="centered")
 
-# CSSによるUIの巨大化とハイコントラスト設定
+# モデルの読み込みパスを修正（GitHub上のファイル名を直接指定）
+# /content/... という記述を消して 'best.pt' だけにします
+model_path = 'best.pt'
+
+@st.cache_resource
+def load_model():
+    if os.path.exists(model_path):
+        return YOLO(model_path)
+    return None
+
+model = load_model()
+
+# --- UI (巨大な文字とボタン) ---
 st.markdown("""
     <style>
     .stButton>button {
-        width: 100%;
-        height: 100px;
-        font-size: 30px !important;
-        font-weight: bold;
-        background-color: #0056b3;
-        color: white;
-        border-radius: 15px;
+        width: 100%; height: 100px;
+        font-size: 30px !important; font-weight: bold;
+        background-color: #0056b3; color: white; border-radius: 15px;
     }
-    p, span, label {
-        font-size: 24px !important;
-    }
-    .stAlert p {
-        font-size: 32px !important;
-        font-weight: bold;
-    }
+    p, span, label { font-size: 24px !important; }
+    .stAlert p { font-size: 32px !important; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
-# 音声再生関数
 def announce(text, lang='ja'):
     try:
         tts = gTTS(text=text, lang=lang)
@@ -46,42 +48,24 @@ def announce(text, lang='ja'):
     except Exception as e:
         st.error(f"音声エラー: {e}")
 
-# モデルの読み込みパスを修正
-model_path = 'best.pt'
-
-@st.cache_resource
-def load_model():
-    if os.path.exists(model_path):
-        return YOLO(model_path)
-    return None
-
-model = load_model()
-
 st.title("🚦 信号機アナウンサー")
 
 if model is None:
-    st.error(f"モデルファイル({model_path})が見つかりません。GitHubに同名でアップロードされているか確認してください。")
+    st.error(f"エラー: '{model_path}' が見つかりません。GitHubにファイルをアップロードしているか確認してください。")
     st.stop()
 
 lang_code = st.selectbox("言語 / Language", ["ja", "en"])
 is_jp = (lang_code == "ja")
 
-if 'initialized' not in st.session_state:
-    start_msg = "起動しました。画像をアップロードしてください。" if is_jp else "App started. Please upload an image."
-    announce(start_msg, lang_code)
-    st.session_state.initialized = True
-
-uploaded_file = st.file_uploader("画像ファイルを選択", type=['jpg', 'png', 'jpeg'])
+uploaded_file = st.file_uploader("信号機の画像をアップロード", type=['jpg', 'jpeg', 'png'])
 
 if uploaded_file is not None:
     img = Image.open(uploaded_file)
-    # 推論実行
     results = model.predict(source=img, conf=0.4)
     
-    # 検出結果の取得 (クラス名がRed, Green, Blueなどの想定)
     labels = [model.names[int(c)] for c in results[0].boxes.cls]
-    reds = sum(1 for label in labels if 'Red' in label)
-    greens = sum(1 for label in labels if 'Green' in label or 'Blue' in label)
+    reds = labels.count('Red')
+    greens = labels.count('Green')
     
     if is_jp:
         if reds == 0 and greens == 0:
@@ -102,9 +86,5 @@ if uploaded_file is not None:
         st.error(f"🛑 {msg}")
     
     announce(msg, lang_code)
-    
-    res_img = results[0].plot()
-    st.image(res_img, caption="検出結果", use_container_width=True)
+    st.image(results[0].plot(), caption="検出結果", use_container_width=True)
 
-    if st.button("もう一度音声を聞く"):
-        announce(msg, lang_code)
